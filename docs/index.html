@@ -1,0 +1,178 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Room Sweep Sentinel - RF Threat Scanner for Android</title>
+  <link rel="icon" type="image/svg+xml" href="../logo.svg">
+  <style>
+    :root {
+      --bg: #0A0D14;
+      --card-bg: rgba(18, 24, 38, 0.7);
+      --cyan: #00E5FF;
+      --mint: #39FF14;
+      --red: #FF3D71;
+      --amber: #FFB300;
+      --text: #F0F4F8;
+      --text-dim: #94A3B8;
+      --border: rgba(0, 229, 255, 0.2);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; }
+    
+    header { width: 100%; max-width: 900px; padding: 24px; display: flex; justify-content: space-between; align-items: center; }
+    .badge { background: rgba(0,229,255,0.1); border: 1px solid var(--cyan); color: var(--cyan); padding: 6px 14px; border-radius: 99px; font-size: 13px; font-weight: 600; letter-spacing: 1px; }
+    
+    .hero { text-align: center; max-width: 800px; padding: 40px 20px 20px; }
+    .hero h1 { font-size: clamp(32px, 6vw, 52px); font-weight: 800; background: linear-gradient(135deg, #FFF 30%, var(--cyan) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 16px; line-height: 1.15; }
+    .hero p { font-size: 18px; color: var(--text-dim); line-height: 1.6; margin-bottom: 32px; }
+
+    /* Radar Canvas Container */
+    .radar-box { position: relative; width: 280px; height: 280px; margin: 0 auto 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    canvas { border-radius: 50%; box-shadow: 0 0 50px rgba(0, 229, 255, 0.2); }
+
+    /* Download CTA */
+    .cta-container { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-bottom: 48px; }
+    .btn-download { display: inline-flex; align-items: center; gap: 12px; background: linear-gradient(135deg, var(--cyan), #00B0FF); color: #000; font-size: 18px; font-weight: 700; padding: 18px 42px; border-radius: 28px; text-decoration: none; box-shadow: 0 10px 30px rgba(0, 229, 255, 0.4); transition: transform 0.2s, box-shadow 0.2s; }
+    .btn-download:hover { transform: translateY(-2px); box-shadow: 0 15px 40px rgba(0, 229, 255, 0.6); }
+    .hash-badge { font-family: monospace; font-size: 12px; color: var(--text-dim); background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); }
+
+    /* Features Grid */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; width: 100%; max-width: 900px; padding: 0 20px 60px; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 24px; padding: 24px; backdrop-filter: blur(16px); }
+    .card h3 { font-size: 18px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; color: var(--cyan); }
+    .card p { font-size: 14px; color: var(--text-dim); line-height: 1.5; }
+
+    footer { padding: 24px; color: var(--text-dim); font-size: 13px; text-align: center; border-top: 1px solid rgba(255,255,255,0.05); width: 100%; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <img src="../logo.svg" width="36" height="36" alt="Logo">
+      <span style="font-weight:700; letter-spacing:1px;">ROOM SWEEP SENTINEL</span>
+    </div>
+    <span class="badge">NIS 2 COMPLIANT</span>
+  </header>
+
+  <main class="hero">
+    <h1>Covert Spy Camera & RF Bug Detector</h1>
+    <p>Engineered for Google Pixel with Material You 3.0. High-precision Wi-Fi and Bluetooth Low Energy spectrum counter-surveillance.</p>
+
+    <div class="radar-box">
+      <canvas id="radar" width="280" height="280"></canvas>
+    </div>
+
+    <div class="cta-container">
+      <a href="https://github.com/FrancescoCastaldi/room-sweep-sentinel/releases/latest/download/app-release.apk" class="btn-download">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download APK for Android
+      </a>
+      <div class="hash-badge">
+        Package: <strong>com.francescocastaldi.roomsentinel</strong> | Target: Android 12-16 (Pixel)
+      </div>
+    </div>
+  </main>
+
+  <section class="grid">
+    <div class="card">
+      <h3>📡 360° Sweep Radar</h3>
+      <p>Hardware-accelerated live radar displaying detected signal pulses with estimated distance concentric rings (1m to 10m).</p>
+    </div>
+    <div class="card">
+      <h3>🎯 Geiger Pinpointing</h3>
+      <p>Hot/cold proximity audio and haptic click tracker to pinpoint hidden micro-transmitters down to 50 centimeters.</p>
+    </div>
+    <div class="card">
+      <h3>🧠 Predictive AI Engine</h3>
+      <p>Time-series RF telemetry analysis detecting covert store-and-forward burst microphones and periodic spy cycles.</p>
+    </div>
+    <div class="card">
+      <h3>🛡️ Tamper-Proof Audit</h3>
+      <p>Local forensic reports chained with SHA-256 hashes compliant with EU NIS 2 (D.Lgs. 138/2024). Zero cloud exfiltration.</p>
+    </div>
+  </section>
+
+  <footer>
+    Room Sweep Sentinel • Open Architecture • MIT License © 2026 Francesco Castaldi
+  </footer>
+
+  <script>
+    const canvas = document.getElementById('radar');
+    const ctx = canvas.getContext('2d');
+    const cx = 140, cy = 140, radius = 130;
+    let angle = 0;
+
+    const blips = [
+      { r: 75, angle: 1.1, color: '#FF3D71', pulse: 0 }, // Threat (Pinhole Cam)
+      { r: 40, angle: 3.8, color: '#39FF14', pulse: 0 }, // Safe
+      { r: 105, angle: 5.2, color: '#00E5FF', pulse: 0 }  // Beacon
+    ];
+
+    function drawRadar() {
+      ctx.clearRect(0, 0, 280, 280);
+
+      // Background
+      ctx.fillStyle = '#0D111A';
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rings
+      [35, 70, 105, 130].forEach(r => {
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      // Axis
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.15)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
+      ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+      ctx.stroke();
+
+      // Sweep Beam
+      const grad = ctx.createConicGradient(angle, cx, cy);
+      grad.addColorStop(0, 'rgba(0, 229, 255, 0.5)');
+      grad.addColorStop(0.15, 'rgba(0, 229, 255, 0.0)');
+      grad.addColorStop(1, 'rgba(0, 229, 255, 0.0)');
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Blips
+      blips.forEach(b => {
+        const bx = cx + Math.cos(b.angle) * b.r;
+        const by = cy + Math.sin(b.angle) * b.r;
+
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(bx, by, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(bx, by, 8 + (Math.sin(Date.now() / 200) * 3), 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      // Center Core
+      ctx.fillStyle = '#00E5FF';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      angle += 0.04;
+      requestAnimationFrame(drawRadar);
+    }
+    drawRadar();
+  </script>
+</body>
+</html>
