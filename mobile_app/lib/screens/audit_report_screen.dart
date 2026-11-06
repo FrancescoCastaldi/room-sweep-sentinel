@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/scanner_service.dart';
 import '../services/audit_logger_service.dart';
+import '../services/update_checker_service.dart';
+import '../widgets/update_dialog.dart';
 import '../theme/app_colors.dart';
 
 class AuditReportScreen extends StatelessWidget {
@@ -434,6 +436,148 @@ class AuditReportScreen extends StatelessWidget {
                     icon: const Icon(Icons.share_rounded, size: 20),
                   ),
                 ],
+              ),
+              const SizedBox(height: 18),
+
+              // In-App Software Update & Version Management Card
+              Consumer<UpdateCheckerService>(
+                builder: (context, updater, _) {
+                  final hasUpdate = updater.hasUpdate;
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceDark,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: hasUpdate
+                            ? AppColors.neonGreen.withOpacity(0.6)
+                            : AppColors.borderSubtle,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  hasUpdate
+                                      ? Icons.system_update_rounded
+                                      : Icons.verified_user_outlined,
+                                  size: 18,
+                                  color: hasUpdate ? AppColors.neonGreen : AppColors.cyberCyan,
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'VERSIONE SENTINEL & FIRMWARE',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceLight,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'v${UpdateCheckerService.currentAppVersion}',
+                                style: TextStyle(
+                                  color: AppColors.cyberCyan,
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          hasUpdate
+                              ? 'È disponibile una nuova versione (${updater.latestRelease?.tagName}) con rilevamento RF potenziato.'
+                              : 'L\'applicazione è aggiornata all\'ultima versione con algoritmo di bonifica hardware attivo.',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: hasUpdate ? AppColors.neonGreen : AppColors.surfaceLight,
+                              foregroundColor: hasUpdate ? AppColors.amoledBlack : AppColors.textPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                side: BorderSide(
+                                  color: hasUpdate
+                                      ? AppColors.neonGreen
+                                      : AppColors.borderSubtle,
+                                ),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            icon: updater.isChecking
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.cyberCyan),
+                                    ),
+                                  )
+                                : Icon(
+                                    hasUpdate
+                                        ? Icons.download_rounded
+                                        : Icons.sync_rounded,
+                                    size: 16,
+                                  ),
+                            label: Text(
+                              updater.isChecking
+                                  ? 'Verifica in corso...'
+                                  : (hasUpdate
+                                      ? 'Installa ${updater.latestRelease?.tagName}'
+                                      : 'Verifica Aggiornamenti'),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            onPressed: updater.isChecking
+                                ? null
+                                : () async {
+                                    HapticFeedback.mediumImpact();
+                                    final release = await updater.checkForUpdates(silent: false);
+                                    if (context.mounted && release != null) {
+                                      if (release.isNewerThanCurrent) {
+                                        UpdateDialog.show(context, release);
+                                      } else {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Nessun aggiornamento disponibile: sei all\'ultima versione.'),
+                                            backgroundColor: AppColors.surfaceElevated,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 24),
             ],

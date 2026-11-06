@@ -26,6 +26,9 @@
     <!-- Haptics for Geiger Counter Acoustic/Tactile Feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- In-App APK Updater & Package Installer -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Hardware Features with required=false to ensure maximum Google Pixel / Android compatibility -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
@@ -62,5 +65,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- FileProvider for APK In-App Updates -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

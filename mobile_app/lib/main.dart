@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'services/scanner_service.dart';
 import 'services/audit_logger_service.dart';
+import 'services/update_checker_service.dart';
+import 'widgets/update_dialog.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 import 'screens/radar_sweep_screen.dart';
@@ -28,6 +30,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => ScannerService()),
         ChangeNotifierProvider(create: (_) => AuditLoggerService()),
+        ChangeNotifierProvider(create: (_) => UpdateCheckerService()),
       ],
       child: const RoomSweepSentinelApp(),
     ),
@@ -57,6 +60,24 @@ class MainNavigationShell extends StatefulWidget {
 
 class _MainNavigationShellState extends State<MainNavigationShell> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Non-intrusive background check for software updates on app startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdatesOnStartup();
+    });
+  }
+
+  void _checkForUpdatesOnStartup() {
+    final updater = context.read<UpdateCheckerService>();
+    updater.checkForUpdates(silent: true).then((release) {
+      if (release != null && release.isNewerThanCurrent && mounted) {
+        UpdateDialog.show(context, release);
+      }
+    });
+  }
 
   final List<Widget> _screens = const [
     RadarSweepScreen(),

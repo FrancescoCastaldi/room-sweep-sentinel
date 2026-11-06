@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:room_sweep_sentinel/models/device_model.dart';
 import 'package:room_sweep_sentinel/services/audit_logger_service.dart';
+import 'package:room_sweep_sentinel/services/update_checker_service.dart';
 
 void main() {
   group('RFDevice Model & Path Loss Calculations', () {
@@ -202,6 +203,29 @@ void main() {
       expect(bearing1, equals(bearing2));
       expect(bearing1, greaterThanOrEqualTo(0.0));
       expect(bearing1, lessThan(360.0));
+    });
+  });
+
+  group('UpdateCheckerService & In-App Release Management', () {
+    test('isVersionNewer correctly detects newer semver tags', () {
+      expect(UpdateCheckerService.isVersionNewer('1.1.0', 'v1.2.0'), isTrue);
+      expect(UpdateCheckerService.isVersionNewer('1.1.0', '1.1.1'), isTrue);
+      expect(UpdateCheckerService.isVersionNewer('1.1.0', 'v2.0.0'), isTrue);
+      expect(UpdateCheckerService.isVersionNewer('1.2.0', 'v1.2.1'), isTrue);
+      expect(UpdateCheckerService.isVersionNewer('1.2.0', 'v1.3.0'), isTrue);
+    });
+
+    test('isVersionNewer returns false for equal or older versions', () {
+      expect(UpdateCheckerService.isVersionNewer('1.1.0', 'v1.1.0'), isFalse);
+      expect(UpdateCheckerService.isVersionNewer('1.1.0', '1.1.0'), isFalse);
+      expect(UpdateCheckerService.isVersionNewer('1.1.0', 'v1.0.9'), isFalse);
+      expect(UpdateCheckerService.isVersionNewer('1.2.0', 'v1.1.9'), isFalse);
+      expect(UpdateCheckerService.isVersionNewer('2.0.0', 'v1.9.9'), isFalse);
+    });
+
+    test('isVersionNewer safely handles build metadata suffixes', () {
+      expect(UpdateCheckerService.isVersionNewer('1.2.0', 'v1.2.0+1'), isFalse);
+      expect(UpdateCheckerService.isVersionNewer('1.2.0', 'v1.2.1+5'), isTrue);
     });
   });
 }

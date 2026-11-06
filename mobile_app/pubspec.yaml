@@ -1,7 +1,7 @@
 name: room_sweep_sentinel
 description: "Room Sweep Sentinel - Proactive RF Counter-Surveillance & Bug Sweeper Mobile App for Android (Pixel Material You 3.0)"
 publish_to: "none"
-version: 1.0.0+1
+version: 1.2.0+2
 
 environment:
   sdk: ">=3.2.0 <4.0.0"

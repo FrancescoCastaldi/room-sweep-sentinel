@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../models/device_model.dart';
 import '../services/scanner_service.dart';
 import '../services/audit_logger_service.dart';
+import '../services/update_checker_service.dart';
+import '../widgets/update_dialog.dart';
 import '../theme/app_colors.dart';
 import '../widgets/radar_display.dart';
 import '../widgets/geiger_tracker_sheet.dart';
@@ -137,28 +139,83 @@ class RadarSweepScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceLight,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.borderSubtle),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.verified_rounded, size: 13, color: AppColors.cyberCyan),
-                            SizedBox(width: 5),
-                            Text(
-                              'NIS2 AUDIT',
-                              style: TextStyle(
-                                color: AppColors.cyberCyan,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.4,
+                      Consumer<UpdateCheckerService>(
+                        builder: (context, updater, _) {
+                          final hasUpdate = updater.hasUpdate;
+                          return GestureDetector(
+                            onTap: () async {
+                              HapticFeedback.selectionClick();
+                              final release = await updater.checkForUpdates(silent: false);
+                              if (context.mounted && release != null) {
+                                if (release.isNewerThanCurrent) {
+                                  UpdateDialog.show(context, release);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Room Sweep Sentinel è aggiornato (v${UpdateCheckerService.currentAppVersion})',
+                                      ),
+                                      backgroundColor: AppColors.surfaceElevated,
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: hasUpdate
+                                    ? AppColors.neonGreen.withOpacity(0.18)
+                                    : AppColors.surfaceLight,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: hasUpdate
+                                      ? AppColors.neonGreen
+                                      : AppColors.borderSubtle,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (updater.isChecking)
+                                    const SizedBox(
+                                      width: 11,
+                                      height: 11,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.cyberCyan),
+                                      ),
+                                    )
+                                  else
+                                    Icon(
+                                      hasUpdate
+                                          ? Icons.system_update_rounded
+                                          : Icons.cloud_done_rounded,
+                                      size: 13,
+                                      color: hasUpdate
+                                          ? AppColors.neonGreen
+                                          : AppColors.textMuted,
+                                    ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    hasUpdate
+                                        ? 'UPDATE'
+                                        : 'v${UpdateCheckerService.currentAppVersion}',
+                                    style: TextStyle(
+                                      color: hasUpdate
+                                          ? AppColors.neonGreen
+                                          : AppColors.textMuted,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ],
                   ),
