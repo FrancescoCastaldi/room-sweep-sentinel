@@ -273,9 +273,6 @@ class BleHardwareService {
       return false;
     }
   }
-      return false;
-    }
-  }
 
   /// Stops active hardware scanning
   Future<void> stopScan() async {
