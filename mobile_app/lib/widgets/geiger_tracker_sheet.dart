@@ -2,11 +2,16 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../models/device_model.dart';
+import '../services/scanner_service.dart';
 import '../theme/app_colors.dart';
 
 /// GeigerTrackerSheet is an acoustic and tactile "hot/cold" proximity tracker
 /// designed to pinpoint covert RF bugs, hidden spy cameras, and audio transmitters.
+///
+/// Directly binds to [ScannerService] to reflect real-time live BLE signal changes
+/// and distance calculations as the user moves throughout the physical room.
 class GeigerTrackerSheet extends StatefulWidget {
   final RFDevice device;
   final VoidCallback? onClose;
@@ -19,21 +24,33 @@ class GeigerTrackerSheet extends StatefulWidget {
     this.onDeviceFlagged,
   });
 
+  /// Displays the modal sheet, binding to active [ScannerService]
   static Future<void> show(
     BuildContext context, {
     required RFDevice device,
     ValueChanged<RFDevice>? onDeviceFlagged,
   }) {
+    final scanner = Provider.of<ScannerService>(context, listen: false);
+    scanner.selectGeigerTarget(device);
+
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => GeigerTrackerSheet(
-        device: device,
-        onClose: () => Navigator.of(ctx).pop(),
-        onDeviceFlagged: onDeviceFlagged,
+      builder: (ctx) => ChangeNotifierProvider.value(
+        value: scanner,
+        child: GeigerTrackerSheet(
+          device: device,
+          onClose: () {
+            scanner.selectGeigerTarget(null);
+            Navigator.of(ctx).pop();
+          },
+          onDeviceFlagged: onDeviceFlagged,
+        ),
       ),
-    );
+    ).whenComplete(() {
+      scanner.selectGeigerTarget(null);
+    });
   }
 
   @override
@@ -49,7 +66,6 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
   double _sensitivityMultiplier = 1.0;
 
   Timer? _tickTimer;
-  Timer? _jitterTimer;
   late AnimationController _pulseController;
 
   @override
@@ -63,35 +79,18 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
     )..repeat(reverse: true);
 
     _restartGeigerLoop();
-
-    // Simulate subtle real-world RF RSSI jitter while tracking
-    _jitterTimer = Timer.periodic(const Duration(milliseconds: 700), (t) {
-      if (!mounted) return;
-      final rand = math.Random();
-      final jitter = (rand.nextInt(3) - 1);
-      final newRssi = (_currentDevice.rssi + jitter).clamp(-90, -25);
-      final newDist = RFDevice.calculateDistance(newRssi);
-
-      setState(() {
-        _currentDevice = _currentDevice.copyWith(
-          rssi: newRssi,
-          estimatedDistanceMeters: newDist,
-          lastSeen: DateTime.now(),
-        );
-      });
-      _restartGeigerLoop();
-    });
   }
 
+  /// Recalculates Geiger acoustic/haptic click interval from smoothed RSSI
   void _restartGeigerLoop() {
     _tickTimer?.cancel();
 
-    // Calculate click interval from signal strength:
-    // RSSI -25 dBm (within 30cm) -> 90ms (rapid clicks)
-    // RSSI -90 dBm (far) -> 1200ms (slow clicks)
+    // Signal strength to tick frequency mapping:
+    // RSSI -25 dBm (direct physical contact < 30cm) -> ~70ms (very rapid clicks)
+    // RSSI -90 dBm (perimetric edge > 8m) -> ~1200ms (slow clicks)
     final clamped = _currentDevice.rssi.clamp(-90, -25);
     final ratio = ((clamped - (-90)) / (-25 - (-90))).clamp(0.0, 1.0);
-    final intervalMs = ((1200 - (ratio * 1110)) / _sensitivityMultiplier)
+    final intervalMs = ((1200 - (ratio * 1130)) / _sensitivityMultiplier)
         .round()
         .clamp(60, 1400);
 
@@ -122,7 +121,6 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
   @override
   void dispose() {
     _tickTimer?.cancel();
-    _jitterTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -155,6 +153,24 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
 
   @override
   Widget build(BuildContext context) {
+    // Dynamically observe real-time updates from ScannerService
+    final scanner = context.watch<ScannerService>();
+
+    // Locate matching live device in scanner registry
+    final liveDevice = scanner.devices.firstWhere(
+      (d) => d.id == widget.device.id || d.macAddress == widget.device.macAddress,
+      orElse: () => _currentDevice,
+    );
+
+    // If live RSSI or distance updated via EMA, refresh state and restart click interval
+    if (liveDevice.rssi != _currentDevice.rssi ||
+        liveDevice.estimatedDistanceMeters != _currentDevice.estimatedDistanceMeters) {
+      _currentDevice = liveDevice;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _restartGeigerLoop();
+      });
+    }
+
     final dist = _currentDevice.estimatedDistanceMeters;
     final proximityColor = _getProximityColor(dist);
     final heatLabel = _getProximityHeatLabel(dist);
@@ -217,14 +233,37 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
                               letterSpacing: 0.5,
                             ),
                           ),
-                          Text(
-                            'LOCALIZZAZIONE ELETTROMAGNETICA',
-                            style: TextStyle(
-                              color: proximityColor,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.5,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                'LOCALIZZAZIONE ELETTROMAGNETICA',
+                                style: TextStyle(
+                                  color: proximityColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              if (scanner.isLiveHardware) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.neonGreen.withOpacity(0.18),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'LIVE BLE',
+                                    style: TextStyle(
+                                      color: AppColors.neonGreen,
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ],
                       ),
@@ -328,10 +367,10 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${_currentDevice.rssi} dBm',
+                        '${_currentDevice.rssi} dBm (EMA)',
                         style: const TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                           fontFamily: 'monospace',
                         ),

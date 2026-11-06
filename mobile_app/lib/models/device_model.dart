@@ -135,9 +135,9 @@ class RFDevice {
   /// Calculates log-distance path loss distance estimate
   /// RSSI = -10 * n * log10(d) + A
   static double calculateDistance(int rssi, {int txPowerAt1m = -59, double pathLossExponent = 2.4}) {
-    if (rssi == 0) return -1.0;
+    if (rssi >= 0 || rssi < -110) return 10.0;
     final ratio = (txPowerAt1m - rssi) / (10.0 * pathLossExponent);
-    final distance = math.pow(10.0, ratio).toDouble();
+    final distance = math.pow(10.0, ratio).toDouble().clamp(0.1, 15.0);
     return double.parse(distance.toStringAsFixed(1));
   }
 
@@ -253,11 +253,13 @@ class RFDevice {
     };
   }
 
-  static double _deriveBearingFromMac(String mac) {
+  static double deriveBearingFromMac(String mac) {
     final clean = mac.replaceAll(':', '');
     final hash = clean.runes.fold<int>(0, (prev, elem) => prev + elem);
     return (hash % 360).toDouble();
   }
+
+  static double _deriveBearingFromMac(String mac) => deriveBearingFromMac(mac);
 }
 
 class ScanSessionSummary {

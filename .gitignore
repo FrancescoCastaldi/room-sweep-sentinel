@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,3 +31,10 @@ mobile_app/android/**/GeneratedPluginRegistrant.java
 *.swo
 .DS_Store
 Thumbs.db
+
+# Deepwork
+.slim/deepwork/
+
+# Agent local config
+CLAUDE.md
+GEMINI.md

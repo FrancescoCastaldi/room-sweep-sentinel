@@ -12,9 +12,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Bluetooth Modern Permissions (Android 12+ API 31+) -->
-    <uses-permission 
-        android:name="android.permission.BLUETOOTH_SCAN" 
-        android:usesPermissionFlags="neverForLocation" />
+    <!-- Note: neverForLocation is purposefully omitted to enable beacon discovery and RSSI distance estimation -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <!-- Legacy Bluetooth for backwards compatibility -->
@@ -22,9 +21,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 
     <!-- Nearby Wi-Fi Devices (Android 13+ API 33+) -->
-    <uses-permission 
-        android:name="android.permission.NEARBY_WIFI_DEVICES" 
-        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
     <!-- Haptics for Geiger Counter Acoustic/Tactile Feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />

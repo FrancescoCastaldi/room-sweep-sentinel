@@ -83,33 +83,117 @@ class RadarSweepScreen extends StatelessWidget {
                     ],
                   ),
 
-                  // NIS2 Certification Mini-Pill
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceLight,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.borderSubtle),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.verified_rounded, size: 13, color: AppColors.cyberCyan),
-                        SizedBox(width: 5),
-                        Text(
-                          'NIS2 AUDIT',
-                          style: TextStyle(
-                            color: AppColors.cyberCyan,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.4,
+                  // Live BLE / Demo Mode Switcher & NIS2 Certification Mini-Pill
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          final newMode = scanner.isLiveHardware
+                              ? ScanMode.simulation
+                              : ScanMode.liveHardware;
+                          scanner.setScanMode(newMode);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: scanner.isLiveHardware
+                                ? AppColors.neonGreen.withOpacity(0.14)
+                                : AppColors.cyberCyan.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: scanner.isLiveHardware
+                                  ? AppColors.neonGreen.withOpacity(0.6)
+                                  : AppColors.cyberCyan.withOpacity(0.6),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                scanner.isLiveHardware
+                                    ? Icons.bluetooth_searching_rounded
+                                    : Icons.science_rounded,
+                                size: 13,
+                                color: scanner.isLiveHardware
+                                    ? AppColors.neonGreen
+                                    : AppColors.cyberCyan,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                scanner.isLiveHardware ? 'LIVE BLE' : 'DEMO RF',
+                                style: TextStyle(
+                                  color: scanner.isLiveHardware
+                                      ? AppColors.neonGreen
+                                      : AppColors.cyberCyan,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceLight,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.borderSubtle),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.verified_rounded, size: 13, color: AppColors.cyberCyan),
+                            SizedBox(width: 5),
+                            Text(
+                              'NIS2 AUDIT',
+                              style: TextStyle(
+                                color: AppColors.cyberCyan,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
+
+            if (scanner.statusMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.threatMedium.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.threatMedium.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline_rounded, size: 14, color: AppColors.threatMedium),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          scanner.statusMessage!,
+                          style: const TextStyle(
+                            color: AppColors.threatMedium,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             // Metrics Summary Bar
             Padding(
@@ -145,26 +229,31 @@ class RadarSweepScreen extends StatelessWidget {
             // Central Interactive Sweeping Radar
             Expanded(
               child: Center(
-                child: RadarDisplay(
-                  devices: scanner.devices,
-                  sweepAngle: scanner.radarAngle,
-                  maxRangeMeters: 10.0,
-                  size: 320.0,
-                  onDeviceTapped: (device) {
-                    HapticFeedback.lightImpact();
-                    auditLogger.logEvent('RADAR_BLIP_SELECTED', {
-                      'device_id': device.id,
-                      'mac': device.macAddress,
-                      'threat': device.threatLevel.name,
-                    });
-                    GeigerTrackerSheet.show(
-                      context,
-                      device: device,
-                      onDeviceFlagged: (flagged) {
-                        auditLogger.logEvent('DEVICE_FLAGGED_FOR_NEUTRALIZATION', {
-                          'mac': flagged.macAddress,
-                          'rssi': flagged.rssi,
+                child: ValueListenableBuilder<double>(
+                  valueListenable: scanner.radarAngleNotifier,
+                  builder: (context, angle, _) {
+                    return RadarDisplay(
+                      devices: scanner.devices,
+                      sweepAngle: angle,
+                      maxRangeMeters: 10.0,
+                      size: 320.0,
+                      onDeviceTapped: (device) {
+                        HapticFeedback.lightImpact();
+                        auditLogger.logEvent('RADAR_BLIP_SELECTED', {
+                          'device_id': device.id,
+                          'mac': device.macAddress,
+                          'threat': device.threatLevel.name,
                         });
+                        GeigerTrackerSheet.show(
+                          context,
+                          device: device,
+                          onDeviceFlagged: (flagged) {
+                            auditLogger.logEvent('DEVICE_FLAGGED_FOR_NEUTRALIZATION', {
+                              'mac': flagged.macAddress,
+                              'rssi': flagged.rssi,
+                            });
+                          },
+                        );
                       },
                     );
                   },

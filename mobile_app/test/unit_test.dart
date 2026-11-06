@@ -182,4 +182,26 @@ void main() {
       expect(json['report_id'], equals('REP-2026-001'));
     });
   });
+
+  group('Exponential Moving Average (EMA) RF Signal Filter & Bearing', () {
+    test('EMA smooths high-frequency fluctuations towards steady signal', () {
+      const alpha = 0.30;
+      double ema = -80.0; // Initial seed (cold start)
+      // Sequence of noisy readings around -50 dBm
+      final readings = [-52, -48, -55, -47, -50, -49];
+      for (final raw in readings) {
+        ema = (alpha * raw) + ((1.0 - alpha) * ema);
+      }
+      // After several readings near -50, EMA should converge close to -50
+      expect(ema, closeTo(-50.0, 5.0));
+    });
+
+    test('deriveBearingFromMac returns consistent 0-360 degree angle', () {
+      final bearing1 = RFDevice.deriveBearingFromMac('B4:E6:2D:4F:11:8A');
+      final bearing2 = RFDevice.deriveBearingFromMac('B4:E6:2D:4F:11:8A');
+      expect(bearing1, equals(bearing2));
+      expect(bearing1, greaterThanOrEqualTo(0.0));
+      expect(bearing1, lessThan(360.0));
+    });
+  });
 }
