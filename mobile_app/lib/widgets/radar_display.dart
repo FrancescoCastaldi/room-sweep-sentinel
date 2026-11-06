@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import '../models/device_model.dart';
 import '../theme/app_colors.dart';
 
-/// RadarDisplay is an interactive, animated 360° sweeping counter-surveillance radar.
-/// Renders concentric range rings (1m, 3m, 5m, 10m), cardinal directions,
-/// sweeping phosphor beam, and pulsing threat blips.
+/// RadarDisplay is an interactive, animated 360° sweeping counter-surveillance radar
+/// with real-time Heading-Up orientation driven by the device's hardware compass.
+///
+/// Top of the radar always represents "Ahead" (where the phone antenna is pointed).
+/// Cardinal points (N, E, S, W) and transmitter blips rotate dynamically as the operator turns.
 class RadarDisplay extends StatelessWidget {
   final List<RFDevice> devices;
   final double sweepAngle; // in degrees (0 - 360)
+  final double phoneHeading; // in degrees (0 - 360) from hardware compass
   final double maxRangeMeters;
   final ValueChanged<RFDevice>? onDeviceTapped;
   final String? highlightedDeviceId;
@@ -18,6 +21,7 @@ class RadarDisplay extends StatelessWidget {
     super.key,
     required this.devices,
     required this.sweepAngle,
+    this.phoneHeading = 0.0,
     this.maxRangeMeters = 10.0,
     this.onDeviceTapped,
     this.highlightedDeviceId,
@@ -48,6 +52,7 @@ class RadarDisplay extends StatelessWidget {
             painter: _RadarDisplayPainter(
               devices: devices,
               sweepAngle: sweepAngle,
+              phoneHeading: phoneHeading,
               maxRangeMeters: maxRangeMeters,
               highlightedDeviceId: highlightedDeviceId,
             ),
@@ -77,8 +82,9 @@ class RadarDisplay extends StatelessWidget {
   Offset _deviceToOffset(RFDevice dev, Offset center, double radarRadius) {
     final distRatio = (dev.estimatedDistanceMeters / maxRangeMeters).clamp(0.08, 1.0);
     final r = distRatio * radarRadius;
-    // 0 degrees is North (-pi/2)
-    final angleRad = (dev.bearingAngle - 90.0) * (math.pi / 180.0);
+    // Heading-Up transformation: relative bearing relative to where the phone is pointing
+    final relativeAngle = dev.relativeBearing(phoneHeading);
+    final angleRad = (relativeAngle - 90.0) * (math.pi / 180.0);
     return Offset(
       center.dx + (r * math.cos(angleRad)),
       center.dy + (r * math.sin(angleRad)),
@@ -89,12 +95,14 @@ class RadarDisplay extends StatelessWidget {
 class _RadarDisplayPainter extends CustomPainter {
   final List<RFDevice> devices;
   final double sweepAngle;
+  final double phoneHeading;
   final double maxRangeMeters;
   final String? highlightedDeviceId;
 
   _RadarDisplayPainter({
     required this.devices,
     required this.sweepAngle,
+    required this.phoneHeading,
     required this.maxRangeMeters,
     this.highlightedDeviceId,
   });
@@ -131,7 +139,7 @@ class _RadarDisplayPainter extends CustomPainter {
       final isOuter = dist == 10.0;
       canvas.drawCircle(center, r, isOuter ? highlightRingPaint : ringPaint);
 
-      // Draw Range Distance Labels on the North axis
+      // Draw Range Distance Labels on the vertical axis
       _drawText(
         canvas,
         '${dist.toInt()}m',
@@ -147,7 +155,8 @@ class _RadarDisplayPainter extends CustomPainter {
       ..strokeWidth = 1.0
       ..color = AppColors.radarGrid;
 
-    // Cardinal axes: Horizontal & Vertical
+    // Fixed crosshairs representing relative orientation:
+    // Vertical = Front/Back axis, Horizontal = Left/Right axis
     canvas.drawLine(
       Offset(center.dx - radarRadius, center.dy),
       Offset(center.dx + radarRadius, center.dy),
@@ -177,13 +186,25 @@ class _RadarDisplayPainter extends CustomPainter {
       diagPaint,
     );
 
-    // Cardinal Labels
-    _drawText(canvas, 'N', Offset(center.dx - 4, center.dy - radarRadius + 2), AppColors.cyberCyan, 11.0, isBold: true);
-    _drawText(canvas, 'S', Offset(center.dx - 4, center.dy + radarRadius - 14), AppColors.textMuted, 10.0);
-    _drawText(canvas, 'E', Offset(center.dx + radarRadius - 12, center.dy - 6), AppColors.textMuted, 10.0);
-    _drawText(canvas, 'W', Offset(center.dx - radarRadius + 3, center.dy - 6), AppColors.textMuted, 10.0);
+    // 4. Dynamic Cardinal Labels (Rotating with Compass Heading)
+    _drawRotatingCardinal(canvas, center, radarRadius - 10, 'N', 0.0, isNorth: true);
+    _drawRotatingCardinal(canvas, center, radarRadius - 10, 'E', 90.0);
+    _drawRotatingCardinal(canvas, center, radarRadius - 10, 'S', 180.0);
+    _drawRotatingCardinal(canvas, center, radarRadius - 10, 'W', 270.0);
 
-    // 4. Sweeping phosphor beam (360° rotating cone)
+    // Forward Heading Reticle at Top (0° / Ahead)
+    final forwardIndicatorPaint = Paint()
+      ..color = AppColors.neonGreen
+      ..style = PaintingStyle.fill;
+    final topPoint = Offset(center.dx, center.dy - radarRadius + 2);
+    final arrowPath = Path()
+      ..moveTo(topPoint.dx, topPoint.dy)
+      ..lineTo(topPoint.dx - 4, topPoint.dy + 8)
+      ..lineTo(topPoint.dx + 4, topPoint.dy + 8)
+      ..close();
+    canvas.drawPath(arrowPath, forwardIndicatorPaint);
+
+    // 5. Sweeping phosphor beam (360° rotating cone)
     final sweepAngleRad = (sweepAngle - 90.0) * (math.pi / 180.0);
     final trailAngleRad = sweepAngleRad - (math.pi / 3.0); // 60 degree trailing fade
 
@@ -227,11 +248,14 @@ class _RadarDisplayPainter extends CustomPainter {
       ).createShader(Rect.fromPoints(center, leadPoint));
     canvas.drawLine(center, leadPoint, leadPaint);
 
-    // 5. Draw Device Blips
+    // 6. Draw Device Blips with Heading-Up Relative Positioning
     for (final dev in devices) {
       final distRatio = (dev.estimatedDistanceMeters / maxRangeMeters).clamp(0.08, 1.0);
       final r = distRatio * radarRadius;
-      final angleRad = (dev.bearingAngle - 90.0) * (math.pi / 180.0);
+
+      // Heading-Up transform: blip angle is relative to phone heading
+      final relativeAngle = dev.relativeBearing(phoneHeading);
+      final angleRad = (relativeAngle - 90.0) * (math.pi / 180.0);
 
       final blipPos = Offset(
         center.dx + (r * math.cos(angleRad)),
@@ -239,7 +263,7 @@ class _RadarDisplayPainter extends CustomPainter {
       );
 
       // Check beam proximity for dynamic phosphorescent flash
-      final angleDiffDeg = (dev.bearingAngle - sweepAngle).abs() % 360;
+      final angleDiffDeg = (relativeAngle - sweepAngle).abs() % 360;
       final minAngleDiff = math.min(angleDiffDeg, 360 - angleDiffDeg);
       final isBeamPassing = minAngleDiff < 32.0;
       final isHighlighted = dev.id == highlightedDeviceId;
@@ -280,11 +304,12 @@ class _RadarDisplayPainter extends CustomPainter {
         );
       }
 
-      // Short badge name for quick spotting
-      final shortName = dev.name.length > 12 ? '${dev.name.substring(0, 10)}..' : dev.name;
+      // Distance tag + short name
+      final distLabel = '${dev.estimatedDistanceMeters.toStringAsFixed(1)}m';
+      final shortName = dev.name.length > 10 ? '${dev.name.substring(0, 9)}..' : dev.name;
       _drawText(
         canvas,
-        shortName,
+        '$shortName ($distLabel)',
         Offset(blipPos.dx + 8, blipPos.dy - 6),
         isHighlighted ? AppColors.cyberCyan : AppColors.textPrimary,
         8.5,
@@ -292,7 +317,7 @@ class _RadarDisplayPainter extends CustomPainter {
       );
     }
 
-    // 6. Center Hub / Sentinel Core
+    // 7. Center Hub / Sentinel Core
     canvas.drawCircle(
       center,
       6.0,
@@ -310,6 +335,31 @@ class _RadarDisplayPainter extends CustomPainter {
     );
   }
 
+  void _drawRotatingCardinal(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    String letter,
+    double geographicAzimuth, {
+    bool isNorth = false,
+  }) {
+    // Relative angle on radar = geographicAzimuth - phoneHeading
+    final relAngle = (geographicAzimuth - phoneHeading + 360.0) % 360.0;
+    final rad = (relAngle - 90.0) * (math.pi / 180.0);
+    final pos = Offset(
+      center.dx + (radius * math.cos(rad)) - 4,
+      center.dy + (radius * math.sin(rad)) - 5,
+    );
+    _drawText(
+      canvas,
+      letter,
+      pos,
+      isNorth ? AppColors.neonGreen : AppColors.textMuted,
+      isNorth ? 11.5 : 10.0,
+      isBold: isNorth,
+    );
+  }
+
   void _drawText(
     Canvas canvas,
     String text,
@@ -323,7 +373,7 @@ class _RadarDisplayPainter extends CustomPainter {
       style: TextStyle(
         color: color,
         fontSize: fontSize,
-        fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+        fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
         fontFamily: 'monospace',
       ),
     );
@@ -337,6 +387,7 @@ class _RadarDisplayPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RadarDisplayPainter oldDelegate) {
     return oldDelegate.sweepAngle != sweepAngle ||
+        oldDelegate.phoneHeading != phoneHeading ||
         oldDelegate.devices != devices ||
         oldDelegate.highlightedDeviceId != highlightedDeviceId;
   }

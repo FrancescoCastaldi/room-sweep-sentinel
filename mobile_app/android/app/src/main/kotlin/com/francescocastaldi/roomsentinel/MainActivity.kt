@@ -1,21 +1,49 @@
 package com.francescocastaldi.roomsentinel
 
+import android.content.Context
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-class MainActivity: FlutterActivity() {
-    private val CHANNEL = "com.francescocastaldi.roomsentinel/installer"
+class MainActivity: FlutterActivity(), SensorEventListener {
+    private val INSTALLER_CHANNEL = "com.francescocastaldi.roomsentinel/installer"
+    private val COMPASS_CHANNEL = "com.francescocastaldi.roomsentinel/compass"
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var sensorManager: SensorManager? = null
+    private var rotationSensor: Sensor? = null
+    private var accelSensor: Sensor? = null
+    private var magSensor: Sensor? = null
+
+    private var eventSink: EventChannel.EventSink? = null
+
+    // Scratch buffers for sensor fusion
+    private val rotationMatrix = FloatArray(9)
+    private val remappedMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
+    private val gravityValues = FloatArray(3)
+    private val geoMagValues = FloatArray(3)
+    private var hasGravity = false
+    private var hasGeoMag = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+
+        // 1. In-App Package Installer Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INSTALLER_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getDownloadDirectory" -> {
                     val dir = context.cacheDir
@@ -75,5 +103,120 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // 2. Hardware Compass & Orientation EventChannel
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        setupSensors()
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, COMPASS_CHANNEL).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    eventSink = events
+                    startCompassListening()
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    stopCompassListening()
+                    eventSink = null
+                }
+            }
+        )
+    }
+
+    private fun setupSensors() {
+        val sm = sensorManager ?: return
+        // Primary: Kalman-fused Gyro + Accel + Magnetometer rotation vector
+        rotationSensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotationSensor == null) {
+            // Fallback 1: Geomagnetic rotation vector (accel + mag fusion)
+            rotationSensor = sm.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+        }
+        if (rotationSensor == null) {
+            // Fallback 2: Discrete accelerometer + magnetometer
+            accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            magSensor = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        }
+    }
+
+    private fun startCompassListening() {
+        val sm = sensorManager ?: return
+        if (rotationSensor != null) {
+            sm.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_UI)
+        } else {
+            accelSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+            magSensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        }
+    }
+
+    private fun stopCompassListening() {
+        sensorManager?.unregisterListener(this)
+        hasGravity = false
+        hasGeoMag = false
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null) return
+        var azimuthDeg: Double? = null
+
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR ||
+            event.sensor.type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) {
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+            // Remap coordinate system for handheld portrait orientation
+            SensorManager.remapCoordinateSystem(
+                rotationMatrix,
+                SensorManager.AXIS_X,
+                SensorManager.AXIS_Z,
+                remappedMatrix
+            )
+            SensorManager.getOrientation(remappedMatrix, orientationAngles)
+            azimuthDeg = ((Math.toDegrees(orientationAngles[0].toDouble()) + 360.0) % 360.0)
+        } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            System.arraycopy(event.values, 0, gravityValues, 0, 3)
+            hasGravity = true
+        } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
+            System.arraycopy(event.values, 0, geoMagValues, 0, 3)
+            hasGeoMag = true
+        }
+
+        if (azimuthDeg == null && hasGravity && hasGeoMag) {
+            val success = SensorManager.getRotationMatrix(rotationMatrix, null, gravityValues, geoMagValues)
+            if (success) {
+                SensorManager.remapCoordinateSystem(
+                    rotationMatrix,
+                    SensorManager.AXIS_X,
+                    SensorManager.AXIS_Z,
+                    remappedMatrix
+                )
+                SensorManager.getOrientation(remappedMatrix, orientationAngles)
+                azimuthDeg = ((Math.toDegrees(orientationAngles[0].toDouble()) + 360.0) % 360.0)
+            }
+        }
+
+        azimuthDeg?.let { deg ->
+            mainHandler.post {
+                eventSink?.success(deg)
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        // No-op
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopCompassListening()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (eventSink != null) {
+            startCompassListening()
+        }
+    }
+
+    override fun onDestroy() {
+        stopCompassListening()
+        super.onDestroy()
     }
 }

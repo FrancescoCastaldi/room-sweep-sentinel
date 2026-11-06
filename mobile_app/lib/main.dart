@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'services/scanner_service.dart';
 import 'services/audit_logger_service.dart';
 import 'services/update_checker_service.dart';
+import 'services/compass_service.dart';
 import 'widgets/update_dialog.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
@@ -31,6 +32,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => ScannerService()),
         ChangeNotifierProvider(create: (_) => AuditLoggerService()),
         ChangeNotifierProvider(create: (_) => UpdateCheckerService()),
+        ChangeNotifierProvider(create: (_) => CompassService()),
       ],
       child: const RoomSweepSentinelApp(),
     ),

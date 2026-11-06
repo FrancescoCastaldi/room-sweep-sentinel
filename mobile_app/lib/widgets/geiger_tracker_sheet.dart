@@ -244,25 +244,23 @@ class _GeigerTrackerSheetState extends State<GeigerTrackerSheet>
                                   letterSpacing: 0.5,
                                 ),
                               ),
-                              if (scanner.isLiveHardware) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.neonGreen.withOpacity(0.18),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'LIVE BLE',
-                                    style: TextStyle(
-                                      color: AppColors.neonGreen,
-                                      fontSize: 8.5,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.neonGreen.withOpacity(0.18),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'LIVE BLE',
+                                  style: TextStyle(
+                                    color: AppColors.neonGreen,
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
-                              ],
+                              ),
                             ],
                           ),
                         ],

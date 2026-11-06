@@ -134,11 +134,27 @@ class RFDevice {
 
   /// Calculates log-distance path loss distance estimate
   /// RSSI = -10 * n * log10(d) + A
-  static double calculateDistance(int rssi, {int txPowerAt1m = -59, double pathLossExponent = 2.4}) {
+  static double calculateDistance(int rssi, {int txPowerAt1m = -59, double pathLossExponent = 2.2}) {
     if (rssi >= 0 || rssi < -110) return 10.0;
     final ratio = (txPowerAt1m - rssi) / (10.0 * pathLossExponent);
     final distance = math.pow(10.0, ratio).toDouble().clamp(0.1, 15.0);
     return double.parse(distance.toStringAsFixed(1));
+  }
+
+  /// Calculates adaptive fast-attack / slow-decay smoothed RSSI
+  /// [delta] >= 4.0 dBm triggers rapid alpha (0.80) to respond immediately to operator movement;
+  /// smaller fluctuations use slow alpha (0.25) to smooth stationary RF noise.
+  static double calculateAdaptiveRssi(double prevSmoothed, int rawRssi) {
+    if (rawRssi >= 0 || rawRssi < -110) return prevSmoothed;
+    final delta = (rawRssi - prevSmoothed).abs();
+    final double alpha = (delta >= 4.0) ? 0.80 : 0.25;
+    return (alpha * rawRssi) + ((1.0 - alpha) * prevSmoothed);
+  }
+
+  /// Returns the relative angle (0° = Ahead, 90° = Right, 180° = Behind, 270° = Left)
+  /// calculated from the device's physical azimuth bearing and the phone's current compass heading.
+  double relativeBearing(double phoneHeading) {
+    return (bearingAngle - phoneHeading + 360.0) % 360.0;
   }
 
   /// Categorized human-readable distance range

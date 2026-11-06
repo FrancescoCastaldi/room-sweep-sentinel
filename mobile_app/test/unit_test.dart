@@ -206,6 +206,49 @@ void main() {
     });
   });
 
+  group('Adaptive Dual-Rate EMA & Heading-Up Compass Bearing (v1.3.0)', () {
+    test('calculateAdaptiveRssi triggers fast-attack (alpha=0.80) on large RSSI delta', () {
+      const prev = -80.0;
+      const raw = -50; // delta = 30 dBm (operator moved into immediate range)
+      final updated = RFDevice.calculateAdaptiveRssi(prev, raw);
+      // Expected: (0.80 * -50) + (0.20 * -80) = -40 + -16 = -56.0
+      expect(updated, closeTo(-56.0, 0.01));
+    });
+
+    test('calculateAdaptiveRssi triggers slow-decay (alpha=0.25) on small stationary fluctuations', () {
+      const prev = -60.0;
+      const raw = -62; // delta = 2 dBm (operator stationary, minor multipath bounce)
+      final updated = RFDevice.calculateAdaptiveRssi(prev, raw);
+      // Expected: (0.25 * -62) + (0.75 * -60) = -15.5 + -45.0 = -60.5
+      expect(updated, closeTo(-60.5, 0.01));
+    });
+
+    test('relativeBearing properly positions devices ahead, behind, right, and left relative to compass', () {
+      final now = DateTime.now();
+      final deviceAtEast = RFDevice(
+        id: 'dev_east',
+        macAddress: '11:22:33:44:55:66',
+        protocol: ProtocolType.BLE,
+        rssi: -55,
+        bearingAngle: 90.0, // Located due East in physical room
+        firstSeen: now,
+        lastSeen: now,
+      );
+
+      // 1. Phone pointing East (090°) -> Device is directly Ahead (0°)
+      expect(deviceAtEast.relativeBearing(90.0), closeTo(0.0, 0.01));
+
+      // 2. Phone pointing West (270°) -> User turned around 180° away! Device is Behind (180°)
+      expect(deviceAtEast.relativeBearing(270.0), closeTo(180.0, 0.01));
+
+      // 3. Phone pointing North (000°) -> Device is to the Right (90°)
+      expect(deviceAtEast.relativeBearing(0.0), closeTo(90.0, 0.01));
+
+      // 4. Phone pointing South (180°) -> Device is to the Left (270°)
+      expect(deviceAtEast.relativeBearing(180.0), closeTo(270.0, 0.01));
+    });
+  });
+
   group('UpdateCheckerService & In-App Release Management', () {
     test('isVersionNewer correctly detects newer semver tags', () {
       expect(UpdateCheckerService.isVersionNewer('1.1.0', 'v1.2.0'), isTrue);

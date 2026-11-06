@@ -4,18 +4,11 @@ import 'package:flutter/foundation.dart';
 import '../models/device_model.dart';
 import 'ble_hardware_service.dart';
 
-/// Operating modes for the RF counter-surveillance scanner
-enum ScanMode {
-  liveHardware,
-  simulation,
-}
-
 /// ScannerService coordinates live BLE hardware scanning, real-time RF threat analysis,
-/// Exponential Moving Average (EMA) signal smoothing, and simulated counter-surveillance sweeps.
+/// adaptive dual-rate EMA signal smoothing, and body-shielding physical azimuth correlation.
 class ScannerService extends ChangeNotifier {
   final BleHardwareService _bleService = BleHardwareService();
 
-  ScanMode _scanMode = ScanMode.liveHardware;
   bool _isScanning = false;
   String? _statusMessage;
 
@@ -26,9 +19,11 @@ class ScannerService extends ChangeNotifier {
   // EMA RSSI tracking map: Device ID -> smoothed double value
   final Map<String, double> _emaRssiMap = {};
 
-  // Smoothing parameter (Oracle specification: alpha = 0.30)
-  // High enough to track room movement, low enough to discard multipath RF bounce
-  static const double _emaAlpha = 0.30;
+  // Body-shielding azimuth tracking: Device ID -> peak RSSI and peak heading
+  final Map<String, int> _peakRssiMap = {};
+  final Map<String, double> _physicalAzimuthMap = {};
+
+  double _phoneHeading = 0.0;
 
   RFDevice? _selectedGeigerTarget;
   DateTime? _scanStartTime;
@@ -42,21 +37,17 @@ class ScannerService extends ChangeNotifier {
   Timer? _batchNotifyTimer;
   bool _hasPendingBatch = false;
 
-  // Simulation sample timer
-  Timer? _simulationTimer;
-
   // Subscriptions
   StreamSubscription<BleDevicePacket>? _blePacketSub;
   StreamSubscription<BleScanStatus>? _bleStatusSub;
 
   // Getters
   bool get isScanning => _isScanning;
-  ScanMode get scanMode => _scanMode;
-  bool get isLiveHardware => _scanMode == ScanMode.liveHardware;
   String? get statusMessage => _statusMessage;
   List<RFDevice> get devices => List.unmodifiable(_devices);
   RFDevice? get selectedGeigerTarget => _selectedGeigerTarget;
   double get radarAngle => radarAngleNotifier.value;
+  double get phoneHeading => _phoneHeading;
   DateTime? get scanStartTime => _scanStartTime;
   BleScanStatus get bleHardwareStatus => _bleService.status;
 
@@ -75,10 +66,6 @@ class ScannerService extends ChangeNotifier {
   int get totalThreatsCount => allThreats.length;
 
   ScannerService() {
-    // Default to Live Hardware mode with an empty registry waiting for real radio packets
-    _devicesMap.clear();
-    _emaRssiMap.clear();
-    _syncDevicesList();
     _initBleStatusListener();
   }
 
@@ -97,140 +84,9 @@ class ScannerService extends ChangeNotifier {
     });
   }
 
-  /// Populates baseline environment targets ONLY when simulation mode is explicitly requested
-  void _seedSimulationDevices() {
-    final now = DateTime.now();
-    final initialList = [
-      RFDevice(
-        id: 'dev_covert_cam_01',
-        macAddress: 'B4:E6:2D:4F:11:8A',
-        name: 'Covert_HD_Stream_04',
-        protocol: ProtocolType.WIFI,
-        rssi: -42,
-        channel: 6,
-        frequencyMhz: 2437,
-        isHidden: true,
-        vendor: 'Espressif Systems',
-        threatScore: 92,
-        threatLevel: ThreatLevel.CRITICAL,
-        threatReasons: [
-          'SSID nascosto con streaming RTSP attivo',
-          'Vendor associato a microcontrollori IoT stealth (ESP32-CAM)',
-          'Prossimità critica: RSSI elevato (-42 dBm) a meno di 1 metro',
-        ],
-        estimatedDistanceMeters: 0.8,
-        firstSeen: now.subtract(const Duration(minutes: 4)),
-        lastSeen: now,
-        bearingAngle: 45.0,
-      ),
-      RFDevice(
-        id: 'dev_covert_mic_02',
-        macAddress: 'DC:A6:32:8B:19:EC',
-        name: 'MiniAudio_Tx_V3',
-        protocol: ProtocolType.BLE,
-        rssi: -49,
-        channel: 38,
-        frequencyMhz: 2426,
-        isHidden: false,
-        vendor: 'Raspberry Pi Foundation',
-        threatScore: 84,
-        threatLevel: ThreatLevel.HIGH,
-        threatReasons: [
-          'Beacon BLE continuo non associabile a dispositivi noti',
-          'Payload GATT contenente stream microfonico PCM raw',
-          'Distanza stimata inferiore a 2 metri dal tavolo riunioni',
-        ],
-        estimatedDistanceMeters: 1.5,
-        firstSeen: now.subtract(const Duration(minutes: 10)),
-        lastSeen: now,
-        bearingAngle: 135.0,
-      ),
-      RFDevice(
-        id: 'dev_suspicious_plug_03',
-        macAddress: '50:8A:06:AA:22:91',
-        name: 'Smart_Socket_Internal',
-        protocol: ProtocolType.WIFI,
-        rssi: -64,
-        channel: 1,
-        frequencyMhz: 2412,
-        isHidden: false,
-        vendor: 'Tuya Smart Inc.',
-        threatScore: 58,
-        threatLevel: ThreatLevel.MEDIUM,
-        threatReasons: [
-          'Modulo Tuya integrato in lampada da tavolo',
-          'Traffico anomalo verso endpoint cloud non autorizzato',
-        ],
-        estimatedDistanceMeters: 3.2,
-        firstSeen: now.subtract(const Duration(minutes: 25)),
-        lastSeen: now,
-        bearingAngle: 220.0,
-      ),
-      RFDevice(
-        id: 'dev_beacon_tracker_04',
-        macAddress: '70:BC:10:99:34:F2',
-        name: 'Tag_Tracker_Proximity',
-        protocol: ProtocolType.BLE,
-        rssi: -72,
-        channel: 37,
-        frequencyMhz: 2402,
-        isHidden: false,
-        vendor: 'Apple Inc.',
-        threatScore: 35,
-        threatLevel: ThreatLevel.LOW,
-        threatReasons: [
-          'Tag di tracciamento BLE rilevato nell\'ambiente per oltre 20 minuti',
-        ],
-        estimatedDistanceMeters: 4.8,
-        firstSeen: now.subtract(const Duration(minutes: 30)),
-        lastSeen: now,
-        bearingAngle: 290.0,
-      ),
-      RFDevice(
-        id: 'dev_safe_laptop_05',
-        macAddress: 'F4:D4:88:51:77:01',
-        name: 'Workstation_Dell_XPS',
-        protocol: ProtocolType.WIFI,
-        rssi: -58,
-        channel: 36,
-        frequencyMhz: 5180,
-        isHidden: false,
-        vendor: 'Intel Corporate',
-        threatScore: 5,
-        threatLevel: ThreatLevel.SAFE,
-        threatReasons: [],
-        estimatedDistanceMeters: 2.4,
-        firstSeen: now.subtract(const Duration(hours: 1)),
-        lastSeen: now,
-        bearingAngle: 180.0,
-      ),
-      RFDevice(
-        id: 'dev_safe_ap_06',
-        macAddress: '00:1A:2B:3C:4D:5E',
-        name: 'Corporate_Guest_WiFi',
-        protocol: ProtocolType.WIFI,
-        rssi: -78,
-        channel: 48,
-        frequencyMhz: 5240,
-        isHidden: false,
-        vendor: 'Cisco Systems',
-        threatScore: 0,
-        threatLevel: ThreatLevel.SAFE,
-        threatReasons: [],
-        estimatedDistanceMeters: 8.5,
-        firstSeen: now.subtract(const Duration(hours: 2)),
-        lastSeen: now,
-        bearingAngle: 330.0,
-      ),
-    ];
-
-    _devicesMap.clear();
-    _emaRssiMap.clear();
-    for (final d in initialList) {
-      _devicesMap[d.id] = d;
-      _emaRssiMap[d.id] = d.rssi.toDouble();
-    }
-    _syncDevicesList();
+  /// Updates current phone compass heading (0° - 360°) to rotate radar & track peak azimuths
+  void updatePhoneHeading(double heading) {
+    _phoneHeading = heading;
   }
 
   void _syncDevicesList() {
@@ -245,31 +101,7 @@ class ScannerService extends ChangeNotifier {
     }
   }
 
-  /// Toggles between live BLE hardware scanning and simulated RF sweeps
-  void setScanMode(ScanMode mode) {
-    if (_scanMode == mode) return;
-    _scanMode = mode;
-    if (mode == ScanMode.liveHardware) {
-      // Clear demo simulation targets so only genuine RF packets appear
-      _devicesMap.clear();
-      _emaRssiMap.clear();
-      _syncDevicesList();
-      _statusMessage = 'Antenna BLE reale attiva';
-    } else {
-      // Populate demo mock devices for simulation
-      _seedSimulationDevices();
-      _statusMessage = 'Modalità Simulazione RF dimostrativa';
-    }
-
-    if (_isScanning) {
-      stopScan();
-      startScan();
-    } else {
-      notifyListeners();
-    }
-  }
-
-  /// Starts counter-surveillance sweep
+  /// Starts live counter-surveillance sweep
   Future<void> startScan() async {
     if (_isScanning) return;
     _isScanning = true;
@@ -282,27 +114,18 @@ class ScannerService extends ChangeNotifier {
     // 2. Start batch throttling timer (~3.3 Hz / 300ms) for UI stability
     _startBatchThrottleTimer();
 
-    // 3. Initiate scanning based on active mode
-    if (_scanMode == ScanMode.liveHardware) {
-      // Purge any leftover mock devices so only real radio signals appear on the radar
-      _devicesMap.removeWhere((id, _) => id.startsWith('dev_'));
-      _syncDevicesList();
-
-      try {
-        final started = await _bleService.startScan();
-        if (started) {
-          _listenToBlePackets();
-          _statusMessage = null;
-        } else {
-          // Never secretly fall back to simulation! Keep real mode and show actionable message
-          _statusMessage = _bleService.errorMessage ??
-              'Scansione non avviata. Verifica che Bluetooth e Posizione (GPS) siano attivi sul telefono.';
-        }
-      } catch (e) {
-        _statusMessage = 'Errore antenna BLE: $e';
+    // 3. Initiate native hardware scanning
+    try {
+      final started = await _bleService.startScan();
+      if (started) {
+        _listenToBlePackets();
+        _statusMessage = null;
+      } else {
+        _statusMessage = _bleService.errorMessage ??
+            'Scansione non avviata. Verifica che Bluetooth e Posizione (GPS) siano attivi sul telefono.';
       }
-    } else {
-      _startSimulationLoop();
+    } catch (e) {
+      _statusMessage = 'Errore antenna BLE: $e';
     }
 
     notifyListeners();
@@ -321,12 +144,12 @@ class ScannerService extends ChangeNotifier {
     );
   }
 
-  /// Processes incoming packet with packet validation, cold-start handling,
-  /// EMA RSSI smoothing, and threat heuristic mapping
+  /// Processes incoming packet with packet validation, adaptive fast-attack smoothing,
+  /// body-shielding peak heading correlation, and threat heuristic mapping
   void _processBlePacket(BleDevicePacket packet) {
     final rawRssi = packet.rssi;
 
-    // Filter invalid / anomalous RF packets (Oracle spec: rawRssi >= 0 or rawRssi < -110)
+    // Filter invalid / anomalous RF packets
     if (rawRssi >= 0 || rawRssi < -110) {
       return;
     }
@@ -334,28 +157,55 @@ class ScannerService extends ChangeNotifier {
     final id = packet.remoteId;
     final now = DateTime.now();
 
-    // Exponential Moving Average (EMA) with cold-start seeding
+    // 1. Adaptive Fast-Attack / Slow-Decay RSSI smoothing (Directive B)
     double smoothedRssi;
     if (!_emaRssiMap.containsKey(id)) {
-      // Cold start: seed with current raw packet RSSI
+      // Cold start: instantaneous seed
       smoothedRssi = rawRssi.toDouble();
     } else {
-      final prevSmoothed = _emaRssiMap[id]!;
-      smoothedRssi = (_emaAlpha * rawRssi) + ((1.0 - _emaAlpha) * prevSmoothed);
+      smoothedRssi = RFDevice.calculateAdaptiveRssi(_emaRssiMap[id]!, rawRssi);
     }
     _emaRssiMap[id] = smoothedRssi;
 
     final finalRssi = smoothedRssi.round();
-    final distanceMeters = RFDevice.calculateDistance(finalRssi);
+
+    // 2. Calibrated 1-meter TxPower and Path Loss Calculation (n = 2.2)
+    int txPowerAt1m = -59;
+    if (packet.txPowerLevel != null && packet.txPowerLevel! >= -40 && packet.txPowerLevel! <= -10) {
+      txPowerAt1m = packet.txPowerLevel! - 41;
+    }
+    final distanceMeters = RFDevice.calculateDistance(finalRssi, txPowerAt1m: txPowerAt1m);
+
+    // 3. Body-Shielding Azimuth Tracking (Directive C):
+    // Correlates phone compass heading with peak RSSI sector to determine physical direction
+    double azimuth;
+    final prevPeak = _peakRssiMap[id] ?? -120;
+    if (finalRssi > prevPeak || !_physicalAzimuthMap.containsKey(id)) {
+      _peakRssiMap[id] = finalRssi;
+      _physicalAzimuthMap[id] = _phoneHeading;
+      azimuth = _phoneHeading;
+    } else if (finalRssi >= prevPeak - 3) {
+      // Near peak sector: smooth bearing towards current heading
+      final prevAzimuth = _physicalAzimuthMap[id] ?? _phoneHeading;
+      final delta = ((_phoneHeading - prevAzimuth + 540.0) % 360.0) - 180.0;
+      azimuth = (prevAzimuth + (delta * 0.25) + 360.0) % 360.0;
+      _physicalAzimuthMap[id] = azimuth;
+    } else {
+      azimuth = _physicalAzimuthMap[id] ?? _phoneHeading;
+    }
 
     // Analyze threat profile from advertisement data, manufacturer ID, and service UUIDs
     final threatProfile = _analyzeThreatProfile(packet);
-
     final existing = _devicesMap[id];
+
     final device = RFDevice(
       id: id,
       macAddress: packet.remoteId,
-      name: threatProfile.resolvedName.isNotEmpty ? threatProfile.resolvedName : packet.deviceName,
+      name: (threatProfile.resolvedName.isNotEmpty && threatProfile.resolvedName != 'Dispositivo BLE sconosciuto')
+          ? threatProfile.resolvedName
+          : (packet.deviceName.isNotEmpty && packet.deviceName != 'Dispositivo BLE sconosciuto'
+              ? packet.deviceName
+              : 'Segnale BLE [${packet.remoteId.replaceAll(':', '').toUpperCase().padRight(4).substring(0, 4)}]'),
       protocol: ProtocolType.BLE,
       rssi: finalRssi,
       vendor: threatProfile.vendor,
@@ -365,7 +215,7 @@ class ScannerService extends ChangeNotifier {
       estimatedDistanceMeters: distanceMeters,
       firstSeen: existing?.firstSeen ?? now,
       lastSeen: now,
-      bearingAngle: existing?.bearingAngle ?? RFDevice.deriveBearingFromMac(packet.remoteId),
+      bearingAngle: azimuth,
     );
 
     _devicesMap[id] = device;
@@ -413,6 +263,8 @@ class ScannerService extends ChangeNotifier {
         threatLevel = ThreatLevel.LOW;
         reasons.add('Beacon di prossimità commerciale iBeacon attivo');
       } else {
+        vendor = 'Apple Inc.';
+        resolvedName = 'Dispositivo Apple BLE';
         threatScore = 15;
         threatLevel = ThreatLevel.SAFE;
       }
@@ -515,7 +367,6 @@ class ScannerService extends ChangeNotifier {
   }
 
   /// Isolated radar angle rotation timer (~60 FPS) that updates only [radarAngleNotifier]
-  /// Decoupled from ScannerService.notifyListeners() to avoid UI rebuild storms
   void _startRadarBeamAnimation() {
     _radarAnimationTimer?.cancel();
     _radarAnimationTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
@@ -535,65 +386,26 @@ class ScannerService extends ChangeNotifier {
     });
   }
 
-  /// Simulation loop for testing and fallback mode
-  void _startSimulationLoop() {
-    _simulationTimer?.cancel();
-    _simulationTimer = Timer.periodic(const Duration(milliseconds: 1800), (timer) {
-      _simulateRfSample();
-    });
-  }
-
-  void _simulateRfSample() {
-    final rand = math.Random();
-    for (final key in _devicesMap.keys) {
-      final device = _devicesMap[key]!;
-      final delta = rand.nextInt(5) - 2;
-      final rawRssi = (device.rssi + delta).clamp(-95, -25);
-
-      // Apply EMA
-      final prevSmoothed = _emaRssiMap[device.id] ?? rawRssi.toDouble();
-      final smoothed = (_emaAlpha * rawRssi) + ((1.0 - _emaAlpha) * prevSmoothed);
-      _emaRssiMap[device.id] = smoothed;
-
-      final finalRssi = smoothed.round();
-      final newDistance = RFDevice.calculateDistance(finalRssi);
-
-      _devicesMap[key] = device.copyWith(
-        rssi: finalRssi,
-        estimatedDistanceMeters: newDistance,
-        lastSeen: DateTime.now(),
-      );
-    }
-    _syncDevicesList();
-    notifyListeners();
-  }
-
   /// Stops counter-surveillance sweep
   Future<void> stopScan() async {
     _isScanning = false;
     _radarAnimationTimer?.cancel();
     _batchNotifyTimer?.cancel();
-    _simulationTimer?.cancel();
     await _blePacketSub?.cancel();
     _blePacketSub = null;
 
-    if (_scanMode == ScanMode.liveHardware) {
-      await _bleService.stopScan();
-    }
-
+    await _bleService.stopScan();
     notifyListeners();
   }
 
-  /// Resets scan state back to initial baseline
+  /// Resets scan state back to initial empty baseline
   void reset() {
     stopScan();
-    if (_scanMode == ScanMode.simulation) {
-      _seedSimulationDevices();
-    } else {
-      _devicesMap.clear();
-      _emaRssiMap.clear();
-      _syncDevicesList();
-    }
+    _devicesMap.clear();
+    _emaRssiMap.clear();
+    _peakRssiMap.clear();
+    _physicalAzimuthMap.clear();
+    _syncDevicesList();
     _selectedGeigerTarget = null;
     notifyListeners();
   }
@@ -618,44 +430,39 @@ class ScannerService extends ChangeNotifier {
       status: 'COMPLETED',
     );
 
+    final flagged = _devices.where((d) => d.threatLevel != ThreatLevel.SAFE).toList();
+
     String clearance;
+    final recommendations = <String>[];
+
     if (criticalThreats.isNotEmpty) {
       clearance = 'AMBIENTE COMPROMESSO';
-    } else if (highThreats.isNotEmpty || mediumThreats.isNotEmpty) {
-      clearance = 'ATTENZIONE MINACCE RILEVATE';
+      recommendations.add(
+        'Rilevati ${criticalThreats.length} apparati di livello CRITICO (microspie audio o telecamere occulte attive).',
+      );
+      recommendations.add(
+        'Isolare immediatamente l\'area ed eseguire bonifica fisica su controsoffitti, prese elettriche e arredi.',
+      );
+    } else if (highThreats.isNotEmpty) {
+      clearance = 'ATTENZIONE RICHIESTA';
+      recommendations.add(
+        'Rilevati apparati a rischio ELEVATO (tracker BLE o apparati non autorizzati).',
+      );
+      recommendations.add('Avviare il localizzatore acustico Geiger per localizzare le sorgenti.');
+    } else if (mediumThreats.isNotEmpty) {
+      clearance = 'POTENZIALE VULNERABILITÀ';
+      recommendations.add('Rilevati dispositivi IoT commerciali non censiti nella whitelist aziendale.');
     } else {
-      clearance = 'AMBIENTE CERTIFICATO SICURO';
-    }
-
-    final recommendations = <String>[];
-    if (criticalThreats.isNotEmpty) {
-      recommendations.add(
-        'ISPEZIONE FISICA IMMEDIATA: Rilevato stream RTSP o chip Espressif occulto a breve distanza. Controllare prese a muro, orologi e condotti aria.',
-      );
-      recommendations.add(
-        'ISOLAMENTO RF: Attivare schermatura acustica e disalimentare le dorsali elettriche del perimetro indagato.',
-      );
-    }
-    if (highThreats.isNotEmpty) {
-      recommendations.add(
-        'BONIFICA TAVOLO RIUNIONI: Localizzare il trasmettitore BLE o tracker sospetto tramite il Tracker Geiger acustico.',
-      );
-    }
-    if (mediumThreats.isNotEmpty) {
-      recommendations.add(
-        'SEGNARE DISPOSITIVI IOT: Isolare apparati smart home o moduli Tuya su VLAN guest dedicata.',
-      );
-    }
-    if (recommendations.isEmpty) {
-      recommendations.add('Nessuna anomalia RF riscontrata nel raggio operativo di 10 metri.');
-      recommendations.add('Ripetere la bonifica periodica prima di ogni sessione a porte chiuse.');
+      clearance = 'AMBIENTE BONIFICATO';
+      recommendations.add('Nessuna trasmissione RF non autorizzata rilevata nel perimetro.');
+      recommendations.add('Conforme alle direttive di sicurezza fisica per riunioni riservate.');
     }
 
     return AuditReport(
-      reportId: 'REP-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}-001',
+      reportId: 'REP-NIS2-${now.millisecondsSinceEpoch.toString().substring(5)}',
       generatedAt: now,
       summary: summary,
-      flaggedDevices: allThreats,
+      flaggedDevices: flagged,
       safetyClearance: clearance,
       recommendations: recommendations,
     );
@@ -665,7 +472,6 @@ class ScannerService extends ChangeNotifier {
   void dispose() {
     _radarAnimationTimer?.cancel();
     _batchNotifyTimer?.cancel();
-    _simulationTimer?.cancel();
     _blePacketSub?.cancel();
     _bleStatusSub?.cancel();
     radarAngleNotifier.dispose();

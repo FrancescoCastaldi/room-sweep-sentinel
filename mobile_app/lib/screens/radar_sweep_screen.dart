@@ -6,6 +6,7 @@ import '../models/device_model.dart';
 import '../services/scanner_service.dart';
 import '../services/audit_logger_service.dart';
 import '../services/update_checker_service.dart';
+import '../services/compass_service.dart';
 import '../widgets/update_dialog.dart';
 import '../theme/app_colors.dart';
 import '../widgets/radar_display.dart';
@@ -15,10 +16,25 @@ import '../widgets/animated_logo.dart';
 class RadarSweepScreen extends StatelessWidget {
   const RadarSweepScreen({super.key});
 
+  static String _getCardinalDirection(double heading) {
+    if (heading >= 337.5 || heading < 22.5) return 'N';
+    if (heading >= 22.5 && heading < 67.5) return 'NE';
+    if (heading >= 67.5 && heading < 112.5) return 'E';
+    if (heading >= 112.5 && heading < 157.5) return 'SE';
+    if (heading >= 157.5 && heading < 202.5) return 'S';
+    if (heading >= 202.5 && heading < 247.5) return 'SW';
+    if (heading >= 247.5 && heading < 292.5) return 'W';
+    return 'NW';
+  }
+
   @override
   Widget build(BuildContext context) {
     final scanner = context.watch<ScannerService>();
+    final compass = context.watch<CompassService>();
     final auditLogger = context.read<AuditLoggerService>();
+
+    // Correlate phone compass heading into scanner for physical azimuth estimation
+    scanner.updatePhoneHeading(compass.heading);
 
     final criticalThreats = scanner.criticalThreats;
     final allThreats = scanner.allThreats;
@@ -86,57 +102,37 @@ class RadarSweepScreen extends StatelessWidget {
                     ],
                   ),
 
-                  // Live BLE / Demo Mode Switcher & NIS2 Certification Mini-Pill
+                  // Live Hardware Compass Heading & In-App Update Badge
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          final newMode = scanner.isLiveHardware
-                              ? ScanMode.simulation
-                              : ScanMode.liveHardware;
-                          scanner.setScanMode(newMode);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: scanner.isLiveHardware
-                                ? AppColors.neonGreen.withOpacity(0.14)
-                                : AppColors.cyberCyan.withOpacity(0.14),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: scanner.isLiveHardware
-                                  ? AppColors.neonGreen.withOpacity(0.6)
-                                  : AppColors.cyberCyan.withOpacity(0.6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyberCyan.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.cyberCyan.withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.explore_rounded,
+                              size: 13,
+                              color: AppColors.cyberCyan,
                             ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                scanner.isLiveHardware
-                                    ? Icons.bluetooth_searching_rounded
-                                    : Icons.science_rounded,
-                                size: 13,
-                                color: scanner.isLiveHardware
-                                    ? AppColors.neonGreen
-                                    : AppColors.cyberCyan,
+                            const SizedBox(width: 4),
+                            Text(
+                              '${compass.heading.toInt().toString().padLeft(3, '0')}° ${_getCardinalDirection(compass.heading)}',
+                              style: const TextStyle(
+                                color: AppColors.cyberCyan,
+                                fontSize: 10.5,
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                scanner.isLiveHardware ? 'LIVE BLE' : 'DEMO RF',
-                                style: TextStyle(
-                                  color: scanner.isLiveHardware
-                                      ? AppColors.neonGreen
-                                      : AppColors.cyberCyan,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -314,6 +310,7 @@ class RadarSweepScreen extends StatelessWidget {
                     return RadarDisplay(
                       devices: scanner.devices,
                       sweepAngle: angle,
+                      phoneHeading: compass.heading,
                       maxRangeMeters: 10.0,
                       size: 320.0,
                       onDeviceTapped: (device) {
@@ -363,11 +360,9 @@ class RadarSweepScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      Text(
-                        scanner.isLiveHardware
-                            ? 'Antenna in ascolto: muoviti nella stanza...'
-                            : 'Simulazione attiva in attesa di campioni...',
-                        style: const TextStyle(
+                      const Text(
+                        'Antenna in ascolto: muoviti nella stanza per intercettare segnali...',
+                        style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,

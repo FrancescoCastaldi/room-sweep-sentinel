@@ -35,7 +35,7 @@ class AppReleaseInfo {
 /// UpdateCheckerService queries GitHub Releases, detects new builds,
 /// downloads APKs with real-time stream progress, and triggers native Android package installation.
 class UpdateCheckerService extends ChangeNotifier {
-  static const String currentAppVersion = '1.2.1';
+  static const String currentAppVersion = '1.3.0';
   static const String repoOwner = 'FrancescoCastaldi';
   static const String repoName = 'room-sweep-sentinel';
 
