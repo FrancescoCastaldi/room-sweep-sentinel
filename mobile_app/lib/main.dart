@@ -64,9 +64,13 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   @override
   void initState() {
     super.initState();
-    // Non-intrusive background check for software updates on app startup
+    // Non-intrusive background check for software updates and auto-start RF sweep on launch
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForUpdatesOnStartup();
+      final scanner = context.read<ScannerService>();
+      if (!scanner.isScanning) {
+        scanner.startScan();
+      }
     });
   }
 

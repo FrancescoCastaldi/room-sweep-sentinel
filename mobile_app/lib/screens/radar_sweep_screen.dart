@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/device_model.dart';
 import '../services/scanner_service.dart';
 import '../services/audit_logger_service.dart';
@@ -227,7 +228,7 @@ class RadarSweepScreen extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: AppColors.threatMedium.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(12),
@@ -235,7 +236,7 @@ class RadarSweepScreen extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline_rounded, size: 14, color: AppColors.threatMedium),
+                      const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.threatMedium),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -247,6 +248,27 @@ class RadarSweepScreen extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (scanner.statusMessage!.toLowerCase().contains('impostazioni') ||
+                          scanner.statusMessage!.toLowerCase().contains('permessi') ||
+                          scanner.statusMessage!.toLowerCase().contains('gps'))
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () {
+                            openAppSettings();
+                          },
+                          child: const Text(
+                            'APRI',
+                            style: TextStyle(
+                              color: AppColors.cyberCyan,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -317,6 +339,44 @@ class RadarSweepScreen extends StatelessWidget {
                 ),
               ),
             ),
+
+            // Live Antenna Status Indicator when no devices yet
+            if (scanner.devices.isEmpty && scanner.isScanning)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceDark,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.borderSubtle),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(AppColors.neonGreen),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        scanner.isLiveHardware
+                            ? 'Antenna in ascolto: muoviti nella stanza...'
+                            : 'Simulazione attiva in attesa di campioni...',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             // Detected Threats Quick Reel
             if (criticalThreats.isNotEmpty || allThreats.isNotEmpty) ...[

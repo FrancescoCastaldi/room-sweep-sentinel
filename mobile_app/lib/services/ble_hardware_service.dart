@@ -123,7 +123,7 @@ class BleHardwareService {
 
   /// Verifies and requests required Android runtime permissions:
   /// - Android 12+ (API 31+): BLUETOOTH_SCAN, BLUETOOTH_CONNECT
-  /// - Android <= 11: ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION
+  /// - Android <= 11 and Beacon Proximity: ACCESS_FINE_LOCATION
   Future<bool> checkAndRequestPermissions() async {
     _setStatus(BleScanStatus.checkingPermissions);
 
@@ -132,29 +132,37 @@ class BleHardwareService {
         final permissions = [
           Permission.bluetoothScan,
           Permission.bluetoothConnect,
-          Permission.locationWhenInUse,
+          Permission.location,
         ];
 
         final statuses = await permissions.request();
 
-        final scanStatus = statuses[Permission.bluetoothScan];
-        final connectStatus = statuses[Permission.bluetoothConnect];
-        final locationStatus = statuses[Permission.locationWhenInUse];
+        final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? false;
+        final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+        final locationGranted = statuses[Permission.location]?.isGranted ?? false;
 
-        final scanGranted = scanStatus?.isGranted ?? false;
-        final connectGranted = connectStatus?.isGranted ?? false;
-        final locationGranted = locationStatus?.isGranted ?? false;
-
-        // On Android 12+, scan & connect are essential. On legacy Android, location is mandatory.
-        final isPermitted = (scanGranted && connectGranted) || locationGranted;
+        // On Android, if Bluetooth Scan is granted (or location on older versions), we have at least one valid path
+        final isPermitted = scanGranted || locationGranted;
 
         if (!isPermitted) {
           _setStatus(
             BleScanStatus.permissionDenied,
-            'Permessi Bluetooth o Posizione negati dall\'utente.',
+            'Permessi Bluetooth o Posizione negati. Concedi i permessi per rilevare dispositivi reali.',
           );
           return false;
         }
+
+        // Check if GPS / Location Services are enabled on the device (Android requirement for BLE scan results)
+        try {
+          final locationServiceEnabled = await Permission.location.serviceStatus.isEnabled;
+          if (!locationServiceEnabled) {
+            debugPrint('[BleHardwareService] Warning: Location service (GPS) is disabled');
+            _setStatus(
+              BleScanStatus.error,
+              'Attiva la Posizione (GPS) sul telefono per consentire ad Android di rilevare i segnali Bluetooth.',
+            );
+          }
+        } catch (_) {}
       }
       return true;
     } catch (e) {
@@ -164,7 +172,7 @@ class BleHardwareService {
     }
   }
 
-  /// Checks if device Bluetooth hardware is turned on, attempting prompt if disabled
+  /// Checks if device Bluetooth hardware is turned on, awaiting transition past 'unknown' state
   Future<bool> ensureBluetoothOn() async {
     try {
       final isSupported = await FlutterBluePlus.isSupported;
@@ -176,7 +184,15 @@ class BleHardwareService {
         return false;
       }
 
-      BluetoothAdapterState state = await FlutterBluePlus.adapterState.first;
+      // Important: Wait past the initial 'unknown' adapter state emitted during native initialization
+      BluetoothAdapterState state = await FlutterBluePlus.adapterState
+          .where((s) => s != BluetoothAdapterState.unknown)
+          .first
+          .timeout(
+            const Duration(seconds: 4),
+            onTimeout: () => BluetoothAdapterState.off,
+          );
+
       if (state != BluetoothAdapterState.on) {
         if (Platform.isAndroid) {
           try {
@@ -196,7 +212,7 @@ class BleHardwareService {
         if (state != BluetoothAdapterState.on) {
           _setStatus(
             BleScanStatus.bluetoothDisabled,
-            'Bluetooth disattivato. Attiva il Bluetooth per avviare la bonifica RF.',
+            'Bluetooth disattivato. Attiva il Bluetooth sul telefono per avviare la bonifica RF.',
           );
           return false;
         }
@@ -218,6 +234,11 @@ class BleHardwareService {
       final isBluetoothReady = await ensureBluetoothOn();
       if (!isBluetoothReady) return false;
 
+      // Ensure any running scan is stopped before starting
+      if (FlutterBluePlus.isScanningNow) {
+        await FlutterBluePlus.stopScan();
+      }
+
       // Cancel previous scan subscription if active
       await _scanResultsSub?.cancel();
 
@@ -238,9 +259,10 @@ class BleHardwareService {
         },
       );
 
-      // Start continuous scanning with low latency mode
+      // Start continuous scanning with low latency mode and explicit fine location requirement
       await FlutterBluePlus.startScan(
         continuousUpdates: true,
+        androidUsesFineLocation: true,
         androidScanMode: AndroidScanMode.lowLatency,
       );
 
@@ -248,6 +270,9 @@ class BleHardwareService {
     } catch (e) {
       debugPrint('[BleHardwareService] Failed to start BLE scan: $e');
       _setStatus(BleScanStatus.error, e.toString());
+      return false;
+    }
+  }
       return false;
     }
   }

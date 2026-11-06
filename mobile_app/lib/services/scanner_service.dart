@@ -75,24 +75,30 @@ class ScannerService extends ChangeNotifier {
   int get totalThreatsCount => allThreats.length;
 
   ScannerService() {
-    _seedInitialDevices();
+    // Default to Live Hardware mode with an empty registry waiting for real radio packets
+    _devicesMap.clear();
+    _emaRssiMap.clear();
+    _syncDevicesList();
     _initBleStatusListener();
   }
 
   void _initBleStatusListener() {
     _bleStatusSub = _bleService.statusStream.listen((status) {
       if (status == BleScanStatus.bluetoothDisabled && _isScanning) {
-        _statusMessage = 'Bluetooth disattivato durante la scansione.';
+        _statusMessage = 'Bluetooth disattivato. Attiva il Bluetooth sul telefono per scansionare.';
         notifyListeners();
       } else if (status == BleScanStatus.permissionDenied) {
-        _statusMessage = 'Permessi Bluetooth/Posizione negati.';
+        _statusMessage = 'Permessi Bluetooth/Posizione negati. Concedili nelle impostazioni.';
+        notifyListeners();
+      } else if (status == BleScanStatus.error) {
+        _statusMessage = _bleService.errorMessage;
         notifyListeners();
       }
     });
   }
 
-  /// Populates baseline environment targets (Wi-Fi access points and known network targets)
-  void _seedInitialDevices() {
+  /// Populates baseline environment targets ONLY when simulation mode is explicitly requested
+  void _seedSimulationDevices() {
     final now = DateTime.now();
     final initialList = [
       RFDevice(
@@ -243,12 +249,19 @@ class ScannerService extends ChangeNotifier {
   void setScanMode(ScanMode mode) {
     if (_scanMode == mode) return;
     _scanMode = mode;
-    _statusMessage = mode == ScanMode.liveHardware
-        ? 'Modalità BLE Hardware Live attivata'
-        : 'Modalità Simulazione attivata';
+    if (mode == ScanMode.liveHardware) {
+      // Clear demo simulation targets so only genuine RF packets appear
+      _devicesMap.clear();
+      _emaRssiMap.clear();
+      _syncDevicesList();
+      _statusMessage = 'Antenna BLE reale attiva';
+    } else {
+      // Populate demo mock devices for simulation
+      _seedSimulationDevices();
+      _statusMessage = 'Modalità Simulazione RF dimostrativa';
+    }
 
     if (_isScanning) {
-      // Re-initialize scan under new mode
       stopScan();
       startScan();
     } else {
@@ -269,35 +282,29 @@ class ScannerService extends ChangeNotifier {
     // 2. Start batch throttling timer (~3.3 Hz / 300ms) for UI stability
     _startBatchThrottleTimer();
 
-    // 3. Initiate scanning based on active mode with fallback logic
+    // 3. Initiate scanning based on active mode
     if (_scanMode == ScanMode.liveHardware) {
+      // Purge any leftover mock devices so only real radio signals appear on the radar
+      _devicesMap.removeWhere((id, _) => id.startsWith('dev_'));
+      _syncDevicesList();
+
       try {
         final started = await _bleService.startScan();
         if (started) {
           _listenToBlePackets();
+          _statusMessage = null;
         } else {
-          _fallbackToSimulation(
-            reason: 'Hardware BLE non pronto o permessi mancanti. Attivata simulazione automatica.',
-          );
+          // Never secretly fall back to simulation! Keep real mode and show actionable message
+          _statusMessage = _bleService.errorMessage ??
+              'Scansione non avviata. Verifica che Bluetooth e Posizione (GPS) siano attivi sul telefono.';
         }
       } catch (e) {
-        _fallbackToSimulation(
-          reason: 'Errore avvio BLE ($e). Attivata modalità simulazione.',
-        );
+        _statusMessage = 'Errore antenna BLE: $e';
       }
     } else {
       _startSimulationLoop();
     }
 
-    notifyListeners();
-  }
-
-  /// Fallback to simulation mode if hardware is unavailable
-  void _fallbackToSimulation({required String reason}) {
-    _scanMode = ScanMode.simulation;
-    _statusMessage = reason;
-    debugPrint('[ScannerService] Fallback: $reason');
-    _startSimulationLoop();
     notifyListeners();
   }
 
@@ -375,8 +382,15 @@ class ScannerService extends ChangeNotifier {
     int threatScore = 0;
     ThreatLevel threatLevel = ThreatLevel.SAFE;
     final reasons = <String>[];
-    String vendor = 'Sconosciuto';
+    String vendor = 'Dispositivo Periferico';
     String resolvedName = packet.deviceName;
+
+    if (resolvedName.isEmpty || resolvedName == 'Dispositivo BLE sconosciuto') {
+      final shortMac = macClean.length >= 8
+          ? macClean.substring(macClean.length - 8)
+          : macClean;
+      resolvedName = 'Segnale BLE [$shortMac]';
+    }
 
     // 1. Apple AirTag / FindMy Network (Company Identifier 0x004C)
     if (mfg.containsKey(0x004C)) {
@@ -573,7 +587,13 @@ class ScannerService extends ChangeNotifier {
   /// Resets scan state back to initial baseline
   void reset() {
     stopScan();
-    _seedInitialDevices();
+    if (_scanMode == ScanMode.simulation) {
+      _seedSimulationDevices();
+    } else {
+      _devicesMap.clear();
+      _emaRssiMap.clear();
+      _syncDevicesList();
+    }
     _selectedGeigerTarget = null;
     notifyListeners();
   }
