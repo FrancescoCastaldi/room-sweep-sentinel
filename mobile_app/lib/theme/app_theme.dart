@@ -51,7 +51,7 @@ class AppTheme {
         ),
         iconTheme: IconThemeData(color: AppColors.cyberCyan),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.surfaceDark,
         elevation: 0,
         margin: EdgeInsets.zero,
